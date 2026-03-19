@@ -11,8 +11,10 @@ config_version=5
 [application]
 
 config/name="Pixel War Remote"
+config/version="0.0.0"
+run/main_scene="uid://c3clsa3r1kfi6"
 config/features=PackedStringArray("4.6", "Mobile")
-config/icon="res://icon.svg"
+config/icon="uid://dfy84vha8icxs"
 
 [dotnet]
 
@@ -26,3 +28,4 @@ project/assembly_name="Pixel War Remote"
 
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
