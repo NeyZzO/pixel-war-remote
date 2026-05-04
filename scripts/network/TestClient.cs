@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 public partial class TestClient : Node
 {
-	// Le serveur de tes collègues écoute sur le port 6967
+	
 	[Export] public string ServerIp = "127.0.0.1";
 	[Export] public int ServerPort = 6967; 
 
@@ -102,17 +102,16 @@ public partial class TestClient : Node
 
 				try
 				{
-					// IMPORTANT : On décode le Base64 reçu en tableau d'octets
-					byte[] packetBytes = Convert.FromBase64String(message);
+					// EXACTEMENT COMME LE SERVEUR : On convertit la chaîne en UTF-8
+					byte[] packetBytes = Encoding.UTF8.GetBytes(message);
 					
 					// On reconstitue le Packet
 					Packet packet = Packet.Deserialize(packetBytes);
 					HandlePacket(packet);
 				}
-				catch (FormatException)
+				catch (Exception ex)
 				{
-					// Si ce n'est pas du Base64, on affiche le message brut pour le débogage
-					GD.Print($"[TestClient] Message brut reçu (non-Packet) : {message}");
+					GD.PrintErr($"[TestClient] Erreur de lecture du paquet : {ex.Message}");
 				}
 			}
 		}
@@ -138,12 +137,11 @@ public partial class TestClient : Node
 			// 1. On sérialise le paquet en binaire (byte[])
 			byte[] serializedBytes = packet.Serialize();
 			
-			// 2. On convertit ces octets en chaîne de caractères Base64 
-			// C'est indispensable car le Framer de tes collègues attend un 'string'
-			string base64Message = Convert.ToBase64String(serializedBytes);
+			// 2. EXACTEMENT COMME LE SERVEUR : On convertit les octets en string via UTF-8
+			string message = Encoding.UTF8.GetString(serializedBytes);
 			
 			// 3. On envoie la chaîne
-			await _framer.SendAsync(base64Message);
+			await _framer.SendAsync(message);
 			GD.Print($"[TestClient] Paquet de type {packet.Type} envoyé au serveur.");
 		}
 		catch (Exception ex)
@@ -162,7 +160,6 @@ public partial class TestClient : Node
 			GD.Print($"[TestClient] Contenu du message : {packet.GetDataAsString()}");
 		}
 	}
-
 
 	private void Disconnect()
 	{
