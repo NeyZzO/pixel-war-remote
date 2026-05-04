@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://ds6p4k6i5d1kp" path="res://scripts/controller.gd" id="1_um401"]
 [ext_resource type="PackedScene" uid="uid://dmr0fcamx7t56" path="res://addons/virtual_joystick/virtual_joystick_scene.tscn" id="2_eq701"]
 [ext_resource type="Texture2D" uid="uid://bsimrkrrq6v3v" path="res://assets/controller/pin-icone.png" id="4_a3fk4"]
+[ext_resource type="Script" uid="uid://d1a2fko0k26my" path="res://scripts/network/TestClient.cs" id="5_vx3wb"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vx3wb"]
 
@@ -116,3 +117,6 @@ theme_override_styles/background = SubResource("StyleBoxFlat_vx3wb")
 theme_override_styles/fill = SubResource("StyleBoxFlat_swhsy")
 fill_mode = 3
 show_percentage = false
+
+[node name="NetworkManager" type="Node" parent="." unique_id=667794244]
+script = ExtResource("5_vx3wb")
