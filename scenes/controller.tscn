@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://ds6p4k6i5d1kp" path="res://scripts/controller.gd" id="1_um401"]
 [ext_resource type="PackedScene" uid="uid://dmr0fcamx7t56" path="res://addons/virtual_joystick/virtual_joystick_scene.tscn" id="2_eq701"]
 [ext_resource type="Texture2D" uid="uid://bsimrkrrq6v3v" path="res://assets/controller/pin-icone.png" id="4_a3fk4"]
+[ext_resource type="Script" uid="uid://dhvpion8geekn" path="res://scripts/network/UDPClient.cs" id="5_vx3wb"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_vx3wb"]
 
@@ -28,18 +29,14 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.07058824, 0.13333334, 0.25882354, 1)
 
-[node name="virtualJoystick" parent="." unique_id=1515829791 unique_name_in_owner=true instance=ExtResource("2_eq701")]
+[node name="virtualJoystick" parent="." unique_id=1515829791 instance=ExtResource("2_eq701")]
 layout_mode = 1
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
 offset_left = 40.0
 offset_top = -360.0
 offset_right = 380.0
 offset_bottom = -20.0
-grow_vertical = 0
 
-[node name="playerId" type="Label" parent="." unique_id=1443152744 unique_name_in_owner=true]
+[node name="playerId" type="Label" parent="." unique_id=1443152744]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -136,6 +133,9 @@ theme_override_styles/background = SubResource("StyleBoxFlat_vx3wb")
 theme_override_styles/fill = SubResource("StyleBoxFlat_swhsy")
 fill_mode = 3
 show_percentage = false
+
+[node name="UDPClient" type="Node" parent="." unique_id=555009226]
+script = ExtResource("5_vx3wb")
 
 [connection signal="pressed" from="powerUp/powerUpButton" to="." method="_on_power_up_pressed"]
 [connection signal="pressed" from="ping/pingButton" to="." method="_on_ping_pressed"]

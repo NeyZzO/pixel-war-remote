@@ -46,12 +46,16 @@ func _send_joystick() -> void:
 	# Envoyer seulement si la valeur a changé (éviter le spam quand immobile)
 	if output.distance_to(_last_joystick_output) > 0.01 or (output != Vector2.ZERO):
 		_last_joystick_output = output
-		var data = JSON.stringify({
-			"type": "joystick",
-			"x": snapped(output.x, 0.01),
-			"y": snapped(output.y, 0.01)
-		})
-		NetworkManager.send_packet(NetworkManager.PacketType.Message, data)
+		
+		# Récupérer la Node C# qu'on a ajoutée dans l'arbre pour l'UDP
+		var udp_node = get_node_or_null("UDPClient")
+	
+		if udp_node != null:
+			# On appelle la méthode C# directement depuis GDScript !
+			udp_node.SendInputFromGDScript(output.x, output.y, NetworkManager.player_id)
+		else:
+			print("[Controller] Node UDPClient introuvable, impossible d'envoyer le joystick")
+		
 
 
 # ──── Callbacks boutons ────

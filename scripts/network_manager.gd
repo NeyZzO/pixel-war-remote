@@ -153,19 +153,19 @@ func _process_buffer() -> void:
 		var payload = _recv_buffer.slice(4, 4 + msg_len)
 		_recv_buffer = _recv_buffer.slice(4 + msg_len)
 
-		var message = payload.get_string_from_utf8()
-
+		var packet = _get_packet_deserialized(payload)
+		print("[NetworkManager] Paquet reçu: ", packet)
 		if not _handshake_done:
-			_handle_handshake_message(message)
+			_handle_handshake_message(packet["data"])
 		else:
-			_handle_packet_message(payload)
+			_handle_packet_message(packet)
 
 
 func _handle_handshake_message(message: String) -> void:
 	if message.begins_with("PIXELWAR"):
 		# Serveur s'annonce → on répond
 		print("[NetworkManager] Serveur: ", message)
-		_send_framed_string("REMOTE 1.0")
+		send_packet(PacketType.Message, "REMOTE 1.0")
 	elif message.begins_with("WELCOME"):
 		# Handshake terminé, extraire l'ID
 		var parts = message.split(" ")
@@ -177,12 +177,12 @@ func _handle_handshake_message(message: String) -> void:
 		connected.emit(player_id)
 
 
-func _handle_packet_message(raw_bytes: PackedByteArray) -> void:
+func _get_packet_deserialized(raw_bytes: PackedByteArray) -> Dictionary:
 	# Désérialiser le Packet (format identique au C#)
 	# [2B type_size LE][type UTF-8][4B data_size LE][data bytes]
 	if raw_bytes.size() < 6: # Minimum: 2 + 0 + 4 + 0
 		printerr("[NetworkManager] Paquet trop court")
-		return
+		return {}
 
 	var offset = 0
 
@@ -192,7 +192,7 @@ func _handle_packet_message(raw_bytes: PackedByteArray) -> void:
 
 	if raw_bytes.size() < 2 + type_size + 4:
 		printerr("[NetworkManager] Paquet malformé: type tronqué")
-		return
+		return {}
 
 	# TYPE (string UTF-8)
 	var type_bytes = raw_bytes.slice(offset, offset + type_size)
@@ -205,16 +205,21 @@ func _handle_packet_message(raw_bytes: PackedByteArray) -> void:
 
 	if raw_bytes.size() < offset + data_size:
 		printerr("[NetworkManager] Paquet malformé: données tronquées")
-		return
+		return {}
 
 	# DATA
 	var data_bytes = raw_bytes.slice(offset, offset + data_size)
 	var data_str = data_bytes.get_string_from_utf8()
 
-	# Traitement spécial pour Ping → répondre Pong
-	if type_name == "Ping":
-		send_packet(PacketType.Pong, "")
-		return
+	return {
+		"type": type_name,
+		"data": data_str
+	}
+
+
+func _handle_packet_message(packet: Dictionary) -> void:
+	var type_name = packet.get("type", "")
+	var data_str = packet.get("data", "")
 
 	packet_received.emit(type_name, data_str)
 

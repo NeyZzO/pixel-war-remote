@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Pixel War Remote"
 run/main_scene="uid://cpjfndwd4tgot"
-config/features=PackedStringArray("4.6", "Mobile")
+config/features=PackedStringArray("4.6", "C#", "Mobile")
 config/icon="res://icon.svg"
 
 [autoload]
