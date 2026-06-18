@@ -24,14 +24,16 @@ var _handshake_done: bool = false
 # Buffer de réception pour le MessageFramer
 var _recv_buffer: PackedByteArray = PackedByteArray()
 
-# ──── Packet Types (miroir du C#) ────
+# ──── Packet Types (Hyper important !!! Doit être la copie conforme du côté serveur !!!) ────
 enum PacketType {
-	Ping = 0x0001,
-	Pong = 0x0002,
-	Disconnect = 0x0003,
-	PlayerJoin = 0x0004,
-	PlayerLeave = 0x0005,
-	Message = 0x0006,
+	Ping = 0x01,
+	Pong = 0x02,
+	Handshake = 0x03,
+	PlayerJoin = 0x04,
+	PlayerLeave = 0x05,
+	Message = 0x06,
+	Joystick = 0x07,
+	Disconnect = 0x08
 }
 
 # Map string ↔ enum pour la sérialisation (le serveur C# envoie le nom en string)
@@ -42,6 +44,8 @@ const PACKET_TYPE_NAMES: Dictionary = {
 	"PlayerJoin": PacketType.PlayerJoin,
 	"PlayerLeave": PacketType.PlayerLeave,
 	"Message": PacketType.Message,
+	"Joystick": PacketType.Joystick,
+	"Handshake": PacketType.Handshake,
 }
 
 func _get_packet_type_name(type: PacketType) -> String:
@@ -178,26 +182,16 @@ func _handle_handshake_message(message: String) -> void:
 
 
 func _get_packet_deserialized(raw_bytes: PackedByteArray) -> Dictionary:
-	# Désérialiser le Packet (format identique au C#)
-	# [2B type_size LE][type UTF-8][4B data_size LE][data bytes]
-	if raw_bytes.size() < 6: # Minimum: 2 + 0 + 4 + 0
+	# Nouveau format : [TYPE (1B)][DATA_SIZE (4B LE)][DATA (M bytes)]
+	if raw_bytes.size() < 5: # Minimum: 1 + 4 + 0
 		printerr("[NetworkManager] Paquet trop court")
 		return {}
 
 	var offset = 0
 
-	# TYPE_SIZE (2 bytes, ushort, little-endian)
-	var type_size = raw_bytes.decode_u16(offset)
-	offset += 2
-
-	if raw_bytes.size() < 2 + type_size + 4:
-		printerr("[NetworkManager] Paquet malformé: type tronqué")
-		return {}
-
-	# TYPE (string UTF-8)
-	var type_bytes = raw_bytes.slice(offset, offset + type_size)
-	var type_name = type_bytes.get_string_from_utf8()
-	offset += type_size
+	# TYPE (1 byte, u8)
+	var type_val = raw_bytes.decode_u8(offset)
+	offset += 1
 
 	# DATA_SIZE (4 bytes, int, little-endian)
 	var data_size = raw_bytes.decode_s32(offset)
@@ -208,20 +202,23 @@ func _get_packet_deserialized(raw_bytes: PackedByteArray) -> Dictionary:
 		return {}
 
 	# DATA
-	var data_bytes = raw_bytes.slice(offset, offset + data_size)
-	var data_str = data_bytes.get_string_from_utf8()
+	var data_str = ""
+	if data_size > 0:
+		var data_bytes = raw_bytes.slice(offset, offset + data_size)
+		data_str = data_bytes.get_string_from_utf8()
 
 	return {
-		"type": type_name,
+		"type": type_val, # Attention : c'est maintenant un entier (l'enum), plus une String !
 		"data": data_str
 	}
 
 
 func _handle_packet_message(packet: Dictionary) -> void:
-	var type_name = packet.get("type", "")
+	var type_val = packet.get("type", 0) 
 	var data_str = packet.get("data", "")
 
-	packet_received.emit(type_name, data_str)
+	# Ta signature de signal doit maintenant envoyer un (int, String)
+	packet_received.emit(type_val, data_str)
 
 
 # ══════════════════════════════════════════════════════════
@@ -271,33 +268,23 @@ func _send_framed_bytes(payload: PackedByteArray) -> void:
 
 
 ## Sérialise un packet au format binaire identique au C#
-## [2B type_size LE][type UTF-8][4B data_size LE][data bytes]
+## [TYPE (1B)][DATA_SIZE (4B LE)][DATA (M bytes)]
 func _serialize_packet(type: PacketType, data: String) -> PackedByteArray:
-	var type_name = _get_packet_type_name(type)
-	var type_bytes = type_name.to_utf8_buffer()
 	var data_bytes = data.to_utf8_buffer()
-
 	var buffer = PackedByteArray()
-	var total_size = 2 + type_bytes.size() + 4 + data_bytes.size()
-	buffer.resize(total_size)
 
-	var offset = 0
+	# 1. TYPE (1 byte)
+	# L'enum est casté implicitement en entier, append rajoute 1 seul octet
+	buffer.append(type) 
 
-	# TYPE_SIZE (2 bytes, ushort)
-	buffer.encode_u16(offset, type_bytes.size())
-	offset += 2
+	# 2. DATA_SIZE (4 bytes, int)
+	var size_buffer = PackedByteArray()
+	size_buffer.resize(4)
+	size_buffer.encode_s32(0, data_bytes.size())
+	buffer.append_array(size_buffer)
 
-	# TYPE (N bytes)
-	for i in type_bytes.size():
-		buffer[offset + i] = type_bytes[i]
-	offset += type_bytes.size()
-
-	# DATA_SIZE (4 bytes, int)
-	buffer.encode_s32(offset, data_bytes.size())
-	offset += 4
-
-	# DATA (M bytes)
-	for i in data_bytes.size():
-		buffer[offset + i] = data_bytes[i]
+	# 3. DATA (M bytes)
+	if data_bytes.size() > 0:
+		buffer.append_array(data_bytes)
 
 	return buffer
