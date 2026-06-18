@@ -36,7 +36,8 @@ enum PacketType {
 	PlayerLeave = 0x05,
 	Message = 0x06,
 	Joystick = 0x07,
-	Disconnect = 0x08
+	Disconnect = 0x08,
+	Powerup = 0x09
 }
 
 # Map string ↔ enum pour la sérialisation (le serveur C# envoie le nom en string)
@@ -49,6 +50,7 @@ const PACKET_TYPE_NAMES: Dictionary = {
 	"Message": PacketType.Message,
 	"Joystick": PacketType.Joystick,
 	"Handshake": PacketType.Handshake,
+	"Powerup": PacketType.Powerup,
 }
 
 func _get_packet_type_name(type: PacketType) -> String:

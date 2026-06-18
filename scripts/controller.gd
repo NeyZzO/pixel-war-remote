@@ -5,6 +5,18 @@ extends Control
 # ──── Références UI ────
 var joystick: VirtualJoystick
 var player_id_label: Label
+var power_up_icon: TextureRect
+
+# ──── Powerup ────
+var _current_powerup: String = ""
+var _powerup_pending_use: bool = false
+
+const POWERUP_TEXTURES: Dictionary = {
+	"sword": preload("res://assets/controller/powerup_sword.svg"),
+	"paint_bomb": preload("res://assets/controller/powerup_paint_bomb.svg"),
+	"speed": preload("res://assets/controller/powerup_speed.svg"),
+	"grow": preload("res://assets/controller/powerup_grow.svg"),
+}
 
 # ──── Throttle envoi joystick ────
 const SEND_INTERVAL: float = 0.05 # 20Hz
@@ -18,6 +30,7 @@ func _ready() -> void:
 	# Récupérer les références UI par chemin direct (plus fiable que % lors des changements de scène)
 	joystick = $virtualJoystick
 	player_id_label = $playerId
+	power_up_icon = $powerUp/powerUpButton/powerUpIcon
 
 	# Écouter les signaux réseau
 	NetworkManager.connected.connect(_on_network_connected)
@@ -61,14 +74,20 @@ func _send_joystick() -> void:
 # ──── Callbacks boutons ────
 
 func _on_power_up_pressed() -> void:
-	print("PowerUp pressé !")
+	if _current_powerup == "" or _powerup_pending_use:
+		return
+	print("[Controller] Utilisation du powerup: ", _current_powerup)
 	if NetworkManager.server_connected:
 		var data = JSON.stringify({
-			"type": "button",
-			"name": "powerup",
-			"pressed": true
+			"action": "use"
 		})
-		NetworkManager.send_packet(NetworkManager.PacketType.Message, data)
+		NetworkManager.send_packet(NetworkManager.PacketType.Powerup, data)
+		_powerup_pending_use = true
+		# Feedback visuel : rendre l'icône semi-transparente pendant l'attente
+		power_up_icon.modulate.a = 0.4
+	else:
+		# DEBUG : auto-confirmer quand pas connecté au serveur
+		_handle_powerup_packet({"action": "used"})
 
 
 func _on_ping_pressed() -> void:
@@ -107,6 +126,34 @@ func _on_packet_received(type: int, data: String) -> void:
 				NetworkManager.game_over_type = msg_type
 				_going_to_game_over = true
 				get_tree().change_scene_to_file("res://scenes/game_over.tscn")
+	
+	# Gérer les powerups
+	if type == NetworkManager.PacketType.Powerup and data != "":
+		var json = JSON.parse_string(data)
+		if json is Dictionary:
+			_handle_powerup_packet(json)
+
+
+# ──── Powerup ────
+
+func _handle_powerup_packet(json: Dictionary) -> void:
+	var action = json.get("action", "")
+	match action:
+		"grant":
+			var powerup_name = json.get("powerup", "")
+			if powerup_name in POWERUP_TEXTURES:
+				_current_powerup = powerup_name
+				_powerup_pending_use = false
+				power_up_icon.texture = POWERUP_TEXTURES[powerup_name]
+				power_up_icon.modulate.a = 1.0
+				power_up_icon.visible = true
+				print("[Controller] Powerup reçu: ", powerup_name)
+		"used":
+			_current_powerup = ""
+			_powerup_pending_use = false
+			power_up_icon.visible = false
+			power_up_icon.texture = null
+			print("[Controller] Powerup utilisé et confirmé par le serveur")
 
 
 # ──── DEBUG : à retirer avant la release ────
@@ -122,6 +169,15 @@ func _input(event: InputEvent) -> void:
 			NetworkManager.game_over_type = "victory"
 			_going_to_game_over = true
 			get_tree().change_scene_to_file("res://scenes/game_over.tscn")
+		# ── Powerup debug (pavé numérique) ──
+		elif event.keycode == KEY_KP_1:
+			_handle_powerup_packet({"action": "grant", "powerup": "sword"})
+		elif event.keycode == KEY_KP_2:
+			_handle_powerup_packet({"action": "grant", "powerup": "paint_bomb"})
+		elif event.keycode == KEY_KP_3:
+			_handle_powerup_packet({"action": "grant", "powerup": "speed"})
+		elif event.keycode == KEY_KP_4:
+			_handle_powerup_packet({"action": "grant", "powerup": "grow"})
 
 
 # ──── Nettoyage ────
