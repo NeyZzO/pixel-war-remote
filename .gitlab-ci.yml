@@ -102,6 +102,16 @@ export_android:
 
       echo "✅ Android build template installed"
       ls android/build/build.gradle 2>/dev/null && echo "build.gradle found" || echo "⚠️ build.gradle missing!"
+
+      # Create .build_version file (Godot checks this to verify template version)
+      if [ -f "${TEMPLATE_DIR}/version.txt" ]; then
+        cp "${TEMPLATE_DIR}/version.txt" android/.build_version
+      elif [ -f "${TEMPLATE_DIR_ALT}/version.txt" ]; then
+        cp "${TEMPLATE_DIR_ALT}/version.txt" android/.build_version
+      else
+        echo "${GODOT_VERSION}.stable.mono" > android/.build_version
+      fi
+      echo "Build version: $(cat android/.build_version)"
   script:
     # Let Godot import all assets (first run in editor mode, then quit)
     - godot --headless --quit --editor 2>&1 | tail -5 || true
