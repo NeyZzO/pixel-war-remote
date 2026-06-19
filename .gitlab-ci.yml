@@ -1,0 +1,106 @@
+###############################################################################
+# GitLab CI – Godot 4.6 (.NET/C#) → Android APK → Generic Package Registry
+###############################################################################
+
+variables:
+  GODOT_VERSION: "4.6"
+  EXPORT_NAME: "pixel-war-remote"
+  PACKAGE_NAME: "pixel-war-remote"
+  PACKAGE_VERSION: "0.1.0-build.${CI_PIPELINE_IID}"
+
+stages:
+  - export
+  - upload
+
+# ─── Stage 1 : Build the APK ────────────────────────────────────────────────
+export_android:
+  stage: export
+  image: barichello/godot-ci:mono-${GODOT_VERSION}
+  tags:
+    - docker
+  before_script:
+    # --- Export templates (Mono) ---
+    - mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+    - mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono/*
+        ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono/ 2>/dev/null || true
+
+    # --- Keystore setup ---
+    - mkdir -p ~/.android
+    - |
+      if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+        echo "Using release keystore from CI/CD variable"
+        echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > ~/.android/release.keystore
+        KEYSTORE_PATH="~/.android/release.keystore"
+        KEYSTORE_USER="${RELEASE_KEYSTORE_USER:-release}"
+        KEYSTORE_PASS="${RELEASE_KEYSTORE_PASSWORD:-}"
+      else
+        echo "No release keystore found, generating debug keystore"
+        keytool -keyalg RSA -genkeypair \
+          -alias androiddebugkey \
+          -keypass android \
+          -keystore ~/.android/debug.keystore \
+          -storepass android \
+          -dname "CN=Android Debug,O=Android,C=US" \
+          -validity 9999 -deststoretype pkcs12
+        KEYSTORE_PATH="~/.android/debug.keystore"
+        KEYSTORE_USER="androiddebugkey"
+        KEYSTORE_PASS="android"
+      fi
+
+    # --- Tell Godot where the Android SDK / keystore live ---
+    - mkdir -p ~/.config/godot
+    - |
+      cat > ~/.config/godot/editor_settings-4.tres <<EOF
+      [export/android]
+      java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"
+      android_sdk_path = "/usr/lib/android-sdk"
+      debug_keystore = "${KEYSTORE_PATH}"
+      debug_keystore_user = "${KEYSTORE_USER}"
+      debug_keystore_pass = "${KEYSTORE_PASS}"
+      keystore/release = "${KEYSTORE_PATH}"
+      keystore/release_user = "${KEYSTORE_USER}"
+      keystore/release_password = "${KEYSTORE_PASS}"
+      EOF
+
+    # --- Install the Android build template (needed for gradle builds) ---
+    - mkdir -p android/build
+  script:
+    # Let Godot import all assets (first run in editor mode, then quit)
+    - godot --headless --quit --editor 2>&1 | tail -5 || true
+
+    # Build the .NET solution
+    - dotnet restore || true
+
+    # Export the APK
+    - mkdir -p build/android
+    - |
+      if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+        godot --headless --export-release "Android" build/android/${EXPORT_NAME}.apk
+      else
+        godot --headless --export-debug "Android" build/android/${EXPORT_NAME}.apk
+      fi
+  artifacts:
+    name: "${EXPORT_NAME}-android-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - build/android/${EXPORT_NAME}.apk
+    expire_in: 7 days
+
+# ─── Stage 2 : Upload to Generic Package Registry ───────────────────────────
+upload_package:
+  stage: upload
+  image: curlimages/curl:latest
+  tags:
+    - docker
+  needs:
+    - export_android
+  script:
+    - |
+      echo "Uploading ${EXPORT_NAME}.apk as ${PACKAGE_NAME} v${PACKAGE_VERSION} …"
+
+      curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+           --upload-file "build/android/${EXPORT_NAME}.apk" \
+           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${PACKAGE_NAME}/${PACKAGE_VERSION}/${EXPORT_NAME}.apk"
+
+      echo ""
+      echo "✅ APK published to Generic Package Registry"
+      echo "   → ${CI_PROJECT_URL}/-/packages"
