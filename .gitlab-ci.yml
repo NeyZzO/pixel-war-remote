@@ -141,16 +141,22 @@ export_android:
         EXPORT_MODE="--export-debug"
       fi
 
-      # Append keystore settings to the existing file
+      # Inject SDK settings into the editor settings file
       # (the file already has correct [gd_resource] header from Godot)
       echo 'export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"' >> "$SETTINGS_FILE"
       echo 'export/android/android_sdk_path = "/usr/lib/android-sdk"' >> "$SETTINGS_FILE"
-      echo "export/android/debug_keystore = \"${KS_PATH}\"" >> "$SETTINGS_FILE"
-      echo "export/android/debug_keystore_user = \"${KS_USER}\"" >> "$SETTINGS_FILE"
-      echo "export/android/debug_keystore_pass = \"${KS_PASS}\"" >> "$SETTINGS_FILE"
-      echo "export/android/keystore/release = \"${KS_PATH}\"" >> "$SETTINGS_FILE"
-      echo "export/android/keystore/release_user = \"${KS_USER}\"" >> "$SETTINGS_FILE"
-      echo "export/android/keystore/release_password = \"${KS_PASS}\"" >> "$SETTINGS_FILE"
+
+      # In Godot 4, Android keystore settings belong in export_presets.cfg
+      # Since we have only one preset, appending to the end adds to [preset.0.options]
+      if [ "$EXPORT_MODE" = "--export-release" ]; then
+        echo "keystore/release=\"${KS_PATH}\"" >> export_presets.cfg
+        echo "keystore/release_user=\"${KS_USER}\"" >> export_presets.cfg
+        echo "keystore/release_password=\"${KS_PASS}\"" >> export_presets.cfg
+      else
+        echo "keystore/debug=\"${KS_PATH}\"" >> export_presets.cfg
+        echo "keystore/debug_user=\"${KS_USER}\"" >> export_presets.cfg
+        echo "keystore/debug_password=\"${KS_PASS}\"" >> export_presets.cfg
+      fi
 
       echo "--- Editor settings (last 15 lines) ---"
       tail -15 "$SETTINGS_FILE"
