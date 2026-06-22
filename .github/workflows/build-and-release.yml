@@ -1,0 +1,225 @@
+###############################################################################
+# GitHub Actions – Godot 4.6 (.NET/C#) → Android APK → GitHub Release
+###############################################################################
+
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [main]
+
+env:
+  GODOT_VERSION: "4.6"
+  EXPORT_NAME: "pixel-war-remote"
+
+jobs:
+  # ─── Job 1 : Build the APK ──────────────────────────────────────────────────
+  export_android:
+    name: Export Android APK
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:mono-4.6
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for commit log generation
+
+      # --- Export templates (Mono) ---
+      - name: Setup export templates
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono/* \
+              ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono/ 2>/dev/null || true
+
+      # --- Keystore setup ---
+      - name: Setup keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_USER: ${{ secrets.RELEASE_KEYSTORE_USER }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p $HOME/.android $HOME/.config/godot
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "Using release keystore from secrets"
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > $HOME/.android/release.keystore
+          else
+            echo "No release keystore found, generating debug keystore"
+            keytool -keyalg RSA -genkeypair \
+              -alias androiddebugkey \
+              -keypass android \
+              -keystore $HOME/.android/debug.keystore \
+              -storepass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -validity 9999 -deststoretype pkcs12
+          fi
+
+      # --- Install Android build template ---
+      - name: Install Android build template
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends unzip || true
+
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono"
+          TEMPLATE_DIR_ALT="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+
+          mkdir -p android/build
+
+          if [ -f "${TEMPLATE_DIR}/android_source.zip" ]; then
+            echo "Installing Android build template (mono)…"
+            unzip -o "${TEMPLATE_DIR}/android_source.zip" -d android/build/
+          elif [ -f "${TEMPLATE_DIR_ALT}/android_source.zip" ]; then
+            echo "Installing Android build template (non-mono)…"
+            unzip -o "${TEMPLATE_DIR_ALT}/android_source.zip" -d android/build/
+          else
+            echo "❌ android_source.zip not found!"
+            exit 1
+          fi
+
+          echo "✅ Android build template installed"
+
+          # Create .build_version file
+          if [ -f "${TEMPLATE_DIR}/version.txt" ]; then
+            cp "${TEMPLATE_DIR}/version.txt" android/.build_version
+          elif [ -f "${TEMPLATE_DIR_ALT}/version.txt" ]; then
+            cp "${TEMPLATE_DIR_ALT}/version.txt" android/.build_version
+          else
+            echo "${GODOT_VERSION}.stable.mono" > android/.build_version
+          fi
+          echo "Build version: $(cat android/.build_version)"
+
+      # --- Build the APK ---
+      - name: Import assets & build APK
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_USER: ${{ secrets.RELEASE_KEYSTORE_USER }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        run: |
+          # 1) Let Godot import all assets
+          godot --headless --quit --editor 2>&1 | tail -5 || true
+
+          # 2) Build the .NET solution
+          dotnet restore || true
+
+          # 3) Configure keystore & export
+          SETTINGS_FILE="$HOME/.config/godot/editor_settings-4.tres"
+
+          if [ ! -f "$SETTINGS_FILE" ]; then
+            echo "Looking for editor settings file…"
+            find "$HOME/.config/godot" -name "editor_settings*" -type f 2>/dev/null
+            SETTINGS_FILE=$(find "$HOME/.config/godot" -name "editor_settings*" -type f 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$SETTINGS_FILE" ] || [ ! -f "$SETTINGS_FILE" ]; then
+            echo "❌ No editor settings file found, cannot configure keystore"
+            exit 1
+          fi
+
+          echo "Found settings file: $SETTINGS_FILE"
+
+          # Determine keystore paths and export mode
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            KS_PATH="$HOME/.android/release.keystore"
+            KS_USER="${RELEASE_KEYSTORE_USER:-release}"
+            KS_PASS="${RELEASE_KEYSTORE_PASSWORD:-}"
+            EXPORT_MODE="--export-release"
+          else
+            KS_PATH="$HOME/.android/debug.keystore"
+            KS_USER="androiddebugkey"
+            KS_PASS="android"
+            EXPORT_MODE="--export-debug"
+          fi
+
+          # Inject SDK settings
+          echo 'export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"' >> "$SETTINGS_FILE"
+          echo 'export/android/android_sdk_path = "/usr/lib/android-sdk"' >> "$SETTINGS_FILE"
+
+          # Inject keystore settings into export_presets.cfg
+          if [ "$EXPORT_MODE" = "--export-release" ]; then
+            echo "keystore/release=\"${KS_PATH}\"" >> export_presets.cfg
+            echo "keystore/release_user=\"${KS_USER}\"" >> export_presets.cfg
+            echo "keystore/release_password=\"${KS_PASS}\"" >> export_presets.cfg
+          else
+            echo "keystore/debug=\"${KS_PATH}\"" >> export_presets.cfg
+            echo "keystore/debug_user=\"${KS_USER}\"" >> export_presets.cfg
+            echo "keystore/debug_password=\"${KS_PASS}\"" >> export_presets.cfg
+          fi
+
+          echo "--- Editor settings (last 15 lines) ---"
+          tail -15 "$SETTINGS_FILE"
+          echo "---"
+
+          echo "Keystore file exists: $(ls -la ${KS_PATH} 2>/dev/null || echo 'NOT FOUND!')"
+          echo "Export mode: ${EXPORT_MODE}"
+
+          mkdir -p build/android
+          godot --headless ${EXPORT_MODE} "Android" build/android/${EXPORT_NAME}.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXPORT_NAME }}-android
+          path: build/android/${{ env.EXPORT_NAME }}.apk
+          retention-days: 7
+
+  # ─── Job 2 : Create GitHub Release ──────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: export_android
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for commit log
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.EXPORT_NAME }}-android
+          path: build/android/
+
+      - name: Generate release tag & notes
+        id: release_info
+        run: |
+          # Generate a version tag based on run number
+          TAG="v0.1.0-build.${GITHUB_RUN_NUMBER}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          # Find the previous release tag (most recent tag reachable from HEAD)
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+
+          # Build the commit log as release notes
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating changelog since ${PREV_TAG}…"
+            NOTES=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            echo "No previous tag found, using full commit history (last 50)…"
+            NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges -50)
+          fi
+
+          # Write multiline notes to output
+          {
+            echo "notes<<EOF"
+            echo "## 📦 Android APK — ${TAG}"
+            echo ""
+            echo "### Commits since last release"
+            echo "${NOTES}"
+            echo ""
+            echo "---"
+            echo "_Built from commit \`${GITHUB_SHA::7}\` on branch \`${GITHUB_REF_NAME}\`_"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: ${{ steps.release_info.outputs.tag }}
+          body: ${{ steps.release_info.outputs.notes }}
+          draft: false
+          prerelease: false
+          files: build/android/${{ env.EXPORT_NAME }}.apk

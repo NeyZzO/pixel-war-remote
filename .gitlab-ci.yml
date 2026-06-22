@@ -33,7 +33,7 @@ mirror_github:
       git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*' 2>/dev/null || true
 
       # Add GitHub remote
-      git remote add github "https://${GITHUB_PAT}@github.com/NeyZzO/pixel-war-remote.git"
+      git remote add github "https://${GITHUB_PAT}@github.com/U-Night/pixel-war-remote.git"
 
       # Push all branches + tags
       echo "Mirroring branches to GitHub…"
